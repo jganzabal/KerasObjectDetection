@@ -40,12 +40,15 @@ def annotation_to_nn_output(bboxes, category_ids, im_height, im_width, NUMBER_OF
         one_hot_class[classes.index(category_ids[i])] = 1        
         (in_grid_H, in_grid_W), yolo_bbox = PASCAL_VOC_bbox_2_yolo(bbox, im_height, im_width, GRID_H,  GRID_W)
         if (in_grid_H, in_grid_W) not in cell_bboxes_count:
-            cell_bboxes_count[(in_grid_H, in_grid_W)] = 0
-        box_idx = cell_bboxes_count[(in_grid_H, in_grid_W)]
+            random_idxs = np.array(range(NUMBER_OF_BBOXES))
+            np.random.shuffle(random_idxs)
+            cell_bboxes_count[(in_grid_H, in_grid_W)] = {'idxs': random_idxs, 'pos': 0}
+            
+        box_idx = cell_bboxes_count[(in_grid_H, in_grid_W)]['idxs'][cell_bboxes_count[(in_grid_H, in_grid_W)]['pos']]
         output[in_grid_H, in_grid_W, box_idx, 0] = 1 # Object present
         output[in_grid_H, in_grid_W, box_idx, 1: 1 + NUMBER_OF_CLASSES] = one_hot_class # Object Class
         output[in_grid_H, in_grid_W, box_idx, 1 + NUMBER_OF_CLASSES:] = yolo_bbox # Bounding box
-        cell_bboxes_count[(in_grid_H, in_grid_W)] = cell_bboxes_count[(in_grid_H, in_grid_W)] + 1
+        cell_bboxes_count[(in_grid_H, in_grid_W)]['pos'] = cell_bboxes_count[(in_grid_H, in_grid_W)]['pos'] + 1
     return output
 
 def get_PASCAL_VOC_classes(ANNOTATIONS_FOLDER):
@@ -78,7 +81,7 @@ def PASCAL_VOC_XML_to_dict(xml_file):
         annot_dict['category_ids'].append(name)
     return annot_dict
 
-def get_PASCAL_VOC_annotations_files(classes, folder):
+def get_annotations_files_from_folder(folder, classes):
     filenames = []
     for cl in classes:
         class_filenames = glob.glob(folder+'/'+cl+'/'+'*.xml')
@@ -100,7 +103,7 @@ def get_train_val_annotations_split(ANNOTATIONS_FOLDER, classes=None, MAX_NUMBER
     if CLASSES_BY_DIR:
         for i, cl in enumerate(classes):
             annotations_class = []
-            filenames = get_PASCAL_VOC_annotations_files([cl], ANNOTATIONS_FOLDER)
+            filenames = get_annotations_files_from_folder(ANNOTATIONS_FOLDER, [cl])
             for xml_file in filenames:
                 annot_dict = PASCAL_VOC_XML_to_dict(xml_file)
                 n_bboxes = len(annot_dict['bboxes'])
@@ -120,10 +123,13 @@ def get_train_val_annotations_split(ANNOTATIONS_FOLDER, classes=None, MAX_NUMBER
             annot_dict = PASCAL_VOC_XML_to_dict(filename)
             n_bboxes = len(annot_dict['bboxes'])
             if n_bboxes > 0 and n_bboxes <= MAX_NUMBER_OF_BBOXES_PER_CELL:
+                add_to_val = False
                 for cat_id in annot_dict['category_ids']:
                     if cat_id in classes:
                         classes_count[cat_id] = classes_count[cat_id] + 1
-                        annotations_val.append(annot_dict)
+                        add_to_val = True
+                if add_to_val:
+                    annotations_val.append(annot_dict)
             print('\rfile {}/{}'.format(i+1, n_files), end='')
         print()
         print(classes_count)
@@ -143,8 +149,9 @@ def get_train_val_generators(ANNOTATIONS_FOLDER, IMAGES_FOLDER, batch_size, imag
     
 
 class ObjectDetectionGenerator(Sequence):
-    def __init__(self, annotations, IMAGES_FOLDER, batch_size, images_target_size, classes=None, NUMBER_OF_BBOXES = 1, GRID_H = 13, GRID_W = 13, rescale = 1.0/255.0):
-        self.annotations = annotations
+    def __init__(self, annotations, IMAGES_FOLDER, batch_size, images_target_size, classes=None, NUMBER_OF_BBOXES = 1, GRID_H = 13, GRID_W = 13, rescale = 1.0/255.0, aument_data = True, shuffle = True):
+        self.shuffle = shuffle
+        self.annotations = np.array(annotations)
         self.IMAGES_FOLDER = IMAGES_FOLDER
         self.batch_size = batch_size
         self.batch_index = 0
@@ -154,14 +161,21 @@ class ObjectDetectionGenerator(Sequence):
         self.GRID_W = GRID_W
         self.im_height = images_target_size[0]
         self.im_width = images_target_size[1]
-        self.augmentator = Compose(
-            [
-                Resize(p=1, height=self.im_height, width=self.im_width),
-                RandomSizedCrop(p=0.8, min_max_height=(3*self.im_height/4, self.im_height), height = self.im_height, width = self.im_width),
-                HorizontalFlip(p=0.5), 
-                VerticalFlip(p=0.5),
-            ], 
-              bbox_params={'format': 'pascal_voc', 'min_area': 50.0, 'min_visibility': 0.10, 'label_fields': ['category_id']})
+        if aument_data:
+            self.augmentator = Compose(
+                [
+                    Resize(p=1, height=self.im_height, width=self.im_width),
+                    RandomSizedCrop(p=0.8, min_max_height=(3*self.im_height/4, self.im_height), height = self.im_height, width = self.im_width),
+                    HorizontalFlip(p=0.5), 
+                    VerticalFlip(p=0.5),
+                ], 
+                  bbox_params={'format': 'pascal_voc', 'min_area': 50.0, 'min_visibility': 0.25, 'label_fields': ['category_id']})
+        else:
+            self.augmentator = Compose(
+                [
+                    Resize(p=1, height=self.im_height, width=self.im_width),
+                ], 
+                  bbox_params={'format': 'pascal_voc', 'min_area': 0.0, 'min_visibility': 0.0, 'label_fields': ['category_id']})
         
         if classes is None:
             classes = get_PASCAL_VOC_classes(ANNOTATIONS_FOLDER)
@@ -176,6 +190,9 @@ class ObjectDetectionGenerator(Sequence):
         return int(np.ceil(self.samples / float(self.batch_size)))
     
     def __getitem__(self, idx):
+        if self.batch_index == 0:
+            if self.shuffle:
+                np.random.shuffle(self.annotations)
         annot_batch =  self.annotations[self.batch_index * self.batch_size: (self.batch_index + 1) * self.batch_size]
         self.batch_index = (self.batch_index + 1) % len(self)
         depth = 3
@@ -247,5 +264,14 @@ def annotate_image_from_nn_out(img, nn_out, classes, class_idx_to_name):
                                       grid_out[1 + len(class_idx_to_name):], 
                                       im_height, im_width, 
                                       nn_out.shape[0], nn_out.shape[1])
+        img_with_annot = visualize_bbox(img_with_annot, bbox, class_id, class_idx_to_name) 
+    return img_with_annot
+
+def annotate_image_from_annotation(img, annotation, classes, class_idx_to_name):
+    img_with_annot = img.copy()
+    im_height = img.shape[0]
+    im_width = img.shape[1]
+    for i, bbox in enumerate(annotation['bboxes']):
+        class_id = annotation['category_ids'][i]
         img_with_annot = visualize_bbox(img_with_annot, bbox, class_id, class_idx_to_name) 
     return img_with_annot

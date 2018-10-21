@@ -53,6 +53,9 @@ def get_IOUs_enhanced(annotations, predictions, n_classes, consider_class = True
     return np.mean(best_bbox_ious)
 
 def sigmoid(x):
+    MAX_EXP_VALUE = 100
+    # Prevent warning
+    x = -MAX_EXP_VALUE * (x<-MAX_EXP_VALUE) + x * (x>=-MAX_EXP_VALUE)
     return 1 / (1 + np.exp(-x))
 
 def softmax(x):
@@ -97,11 +100,13 @@ def getIUO(bb1, bb2, from_center_to_box = False):
 def yolo_bbox_2_PASCAL_VOC(grid_coordinates, bbox_yolo, im_height, im_width, GRID_H, GRID_W):
     step_y = im_height/GRID_H
     step_x = im_width/GRID_W
-    bb_width = bbox_yolo[2]*step_x
-    bb_height = bbox_yolo[3]*step_y
+    bb_width = np.max([bbox_yolo[2]*step_x, 1]) # prevent from having area 0
+    bb_height = np.max([bbox_yolo[3]*step_y, 1]) # prevent from having area 0
     bb_left = (grid_coordinates[1] + bbox_yolo[0])*step_x - bb_width/2
     bb_top = (grid_coordinates[0] + bbox_yolo[1])*step_y - bb_height/2
-    return bb_left, bb_top, bb_left+bb_width, bb_top+bb_height
+    bb_left = np.min([np.max([bb_left, 0]), im_width - 1])
+    bb_top = np.min([np.max([bb_top,0]), im_height - 1])
+    return bb_left, bb_top, np.min([bb_left+bb_width, im_width]), np.min([bb_top+bb_height, im_height])
 
 def get_predictions_before_NMS(prediction, classes, im_width, im_height, thres = 0.5, activations = False):
     """
@@ -159,10 +164,10 @@ def non_max_supression(bboxes, probab, IOU_thres = 0.5):
     while len(bboxes)>0:
         # Select most probable Bounding Box
         max_sel_idx = np.argmax(probab)
-        # Append it to final boxes
         final_boxes.append(bboxes[max_sel_idx])
         final_probs.append(probab[max_sel_idx])
         bboxes, probab = get_remaining_boxes(bboxes, bboxes[max_sel_idx], probab)
+        #print(probab)
     return final_boxes, final_probs
 
 def get_predictions(prediction, classes, IMAGE_W, IMAGE_H, obj_conf_thres = 0.5, IOU_thres = 0.5, activations = False):

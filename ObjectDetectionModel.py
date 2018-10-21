@@ -318,17 +318,21 @@ class Losses():
         return YOLO_loss_focal_loss
 
 class ObjectDectection():
-    def __init__(self, NUMBER_OF_CLASSES, IMAGE_H, IMAGE_W, NUMBER_OF_BBOXES=1, ARQUITECTURE='YOLO_V2', weights = 'imagenet', trainable_from_layer=17, dropout_rate = 0.5):
-        self.NUMBER_OF_CLASSES = NUMBER_OF_CLASSES
-        self.IMAGE_H = IMAGE_H
-        self.IMAGE_W = IMAGE_W
+    def __init__(self, CLASSES_ID_TO_NAME, GRID_H, GRID_W, NUMBER_OF_BBOXES=1, ARQUITECTURE='YOLO_V2', weights = 'imagenet', trainable_from_layer=17, dropout_rate = 0.5, CELL_SIZE_IN_PIXELS_H = 32, CELL_SIZE_IN_PIXELS_W = 32):
+        self.CLASSES_ID_TO_NAME = CLASSES_ID_TO_NAME
+        self.CLASSES = list(self.CLASSES_ID_TO_NAME.keys())
+        self.NUMBER_OF_CLASSES = len(CLASSES_ID_TO_NAME)
+        self.GRID_H = GRID_H
+        self.GRID_W = GRID_W
+        self.IMAGE_H = CELL_SIZE_IN_PIXELS_H*GRID_H
+        self.IMAGE_W = CELL_SIZE_IN_PIXELS_W*GRID_W
         self.NUMBER_OF_BBOXES = NUMBER_OF_BBOXES
         if ARQUITECTURE == 'YOLO_V2':
-            self.model = YOLO_V2_model(IMAGE_H, IMAGE_W, NUMBER_OF_CLASSES, NUMBER_OF_BBOXES)
+            self.model = YOLO_V2_model(self.IMAGE_H, self.IMAGE_W, self.NUMBER_OF_CLASSES, NUMBER_OF_BBOXES)
         elif ARQUITECTURE == 'VGG16':
-            self.model = VGG16_for_YOLO_model(IMAGE_H, IMAGE_W, NUMBER_OF_CLASSES, NUMBER_OF_BBOXES, weights, trainable_from_layer, dropout_rate)
-        self.metrics = Metrics(NUMBER_OF_CLASSES)
-        self.losses = Losses(NUMBER_OF_CLASSES)
+            self.model = VGG16_for_YOLO_model(self.IMAGE_H, self.IMAGE_W, self.NUMBER_OF_CLASSES, NUMBER_OF_BBOXES, weights, trainable_from_layer, dropout_rate)
+        self.metrics = Metrics(self.NUMBER_OF_CLASSES)
+        self.losses = Losses(self.NUMBER_OF_CLASSES)
         
     
     

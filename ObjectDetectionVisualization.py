@@ -1,6 +1,21 @@
 import numpy as np
 import cv2
 
+def add_bboxes_to_image(image, results, class_idx_to_name, comp_res = None):
+    image = image.copy()
+    for class_id, v in results.items():
+        #if comp_res is not None:
+        #    print(comp_res[class_id])
+        for i,predicted_box in enumerate(v['bboxes']):
+            add_bbox_to_image(image, 
+                              predicted_box, 
+                              class_id , 
+                              class_idx_to_name, 
+                              thickness=int(5*v['probs'][i]), bbox_type = 'PASCAL_VOC',
+                              text=' ' + str(i)
+                             )
+    return image
+
 def add_bbox_to_image(img, bbox, class_id, class_idx_to_name, thickness=2, bbox_type = 'PASCAL_VOC', text = ''):
     BOX_COLOR = (255, 0, 0)
     TEXT_COLOR = (255, 255, 255)
